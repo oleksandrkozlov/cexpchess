@@ -1,0 +1,6 @@
+include(CTest)
+find_package(GTest 1.10 REQUIRED)
+add_executable(test_cexpchess GameTests.cpp)
+target_link_libraries(test_cexpchess PRIVATE GTest::Main fmt::fmt cexpchesslib)
+add_test(NAME test_cexpchess COMMAND test_cexpchess WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+add_coverage(NAME kcov EXECUTABLE test_cexpchess)

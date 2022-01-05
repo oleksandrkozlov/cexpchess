@@ -1,0 +1,85 @@
+language: cpp
+os: linux
+dist: focal
+
+node_js:
+  - node
+
+branches:
+  only:
+  - master
+
+git:
+  depth: 1
+  quiet: true
+  submodules: false
+
+services:
+  - docker
+
+before_install:
+  - bundle install
+  - bundle exec danger
+  - npm install --global @commitlint/cli@8.3.5
+  - npm install --global @commitlint/travis-cli@8.3.5
+  - commitlint-travis
+
+jobs:
+  include:
+    - name: Build
+      install:
+      - docker build --tag cexpchess .
+      before_script:
+      - docker run -d --name cexpchess --security-opt seccomp=unconfined -v `pwd`:/cexpchess --env GTEST_OUTPUT=xml -ti cexpchess
+      script:
+      # Release (GCC)
+      - docker exec cexpchess cmake -B/cexpchess/build -H/cexpchess -GNinja
+      - docker exec cexpchess cmake --build /cexpchess/build
+      - docker exec cexpchess rm -rf /cexpchess/build
+      # Release (Clang)
+      - docker exec --env CC=clang --env CXX=clang++ cexpchess cmake -B/cexpchess/build -H/cexpchess -GNinja
+      - docker exec cexpchess cmake --build /cexpchess/build
+      - docker exec cexpchess rm -rf /cexpchess/build
+      # Default sanitizers
+      - docker exec cexpchess cmake -B/cexpchess/build -H/cexpchess -DCMAKE_BUILD_TYPE=Debug -DENABLE_DEFAULT_SANITIZERS=ON -GNinja
+      - docker exec cexpchess cmake --build /cexpchess/build
+      - docker exec cexpchess cmake --build /cexpchess/build --target test
+      - docker exec cexpchess rm -rf /cexpchess/build
+      # Thread sanitizer
+      - docker exec cexpchess cmake -B/cexpchess/build -H/cexpchess -DCMAKE_BUILD_TYPE=Debug -DENABLE_THREAD_SANITIZER=ON -GNinja
+      - docker exec cexpchess cmake --build /cexpchess/build
+      - docker exec cexpchess cmake --build /cexpchess/build --target test
+      - docker exec cexpchess rm -rf /cexpchess/build
+      # Debug
+      - docker exec cexpchess cmake -B/cexpchess/build -H/cexpchess -DCMAKE_BUILD_TYPE=Debug -GNinja
+      - docker exec cexpchess cmake --build /cexpchess/build
+      - docker exec cexpchess cmake --build /cexpchess/build --target test
+      - docker exec cexpchess cmake --build /cexpchess/build --target kcov
+      - docker exec cexpchess cmake --build /cexpchess/build --target cppcheck
+      - docker exec cexpchess cmake --build /cexpchess/build --target clang-tidy
+      - docker exec cexpchess cmake --build /cexpchess/build --target clang-format
+      - docker exec cexpchess cmake --build /cexpchess/build --target cmake-format
+      - docker exec cexpchess cmake --build /cexpchess/build --target iwyu
+      after_script:
+      - ci_env=`bash <(curl -s https://codecov.io/env)`
+      - docker exec $ci_env cexpchess /bin/bash -c "bash <(curl -s https://codecov.io/bash) -s /cexpchess/build/kcov"
+    - name: Coverity
+      if: (NOT type IN (pull_request)) AND (branch = master)
+      env:
+        global:
+        - secure: hfd3gQjn9IWE6Lkv3g/M5QXYQVXI/owY21SLGWsO+kZnc0goDY6MBOe/mSslQKa6wlNoNaNaqJzdGhFAodTjyPN+7Kx/AdPF9kwXMw89qc8vzWV708wKXPm5gOXgRDlmcTEmtgA30/BgxID0RqaUZP89VOKYppwuNhZvi++LvQJVfHk1k040hlTTqM1TaZd39Gs8BE4yyvZVrytIicuEubSOh84a8vmSdDYrhnVbrg4K5PYWO+pR5JLoYxTztllMEAIG8BZ8ZWtqCfI2emk9rrHOtZeTZv5nu+iKWLop7l8febhko8kA7UqQ7cq2/e86ed/8qbdP4hm69YFD328LEVvuop5GJO5GFr7XRH4dQJ7DsHcs6j9D9kdU5L+1Wm0Zu2lA850f4x2DDwxQUokDE3o0SM3c8n5T/qTETXtZA4CvAt5/zZLVeSBJachvszRpodJG1ukEeIfdahwfRNST52hDjoPkizsETL6njPlOiT1R1D4XmQrKGzFdbB7MvEnToE/On1y9Pc+nojPkAlZJuF06/vt2SZ6SOJ1TknvW1DVVLkU70O1ntBLx8nkXFh3pZlpvT23gSi4JPf3KIJNdkHQLFu3TJvg62AWdjDS+U5Uzcl9UD0G/4LZoHaptkPBfj30vkGIWESRaZmqZlbk7JaESuSJWtmr6iBrMlCnUv6g=
+      before_install:
+      - sudo apt-get -y update && sudo apt-get -y upgrade
+      - sudo apt-get -y install cmake git libdocopt-dev libfmt-dev libspdlog-dev ninja-build pkg-config
+      - echo -n | openssl s_client -connect scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-certificates.crt
+      - git clone --depth=1 --branch v3.1.0 https://github.com/microsoft/GSL.git gsl && cmake -Hgsl -Bgsl/build -GNinja -DCMAKE_BUILD_TYPE=Release -DGSL_TEST=OFF && sudo cmake --build gsl/build --target install && rm -rf gsl
+      addons:
+        coverity_scan:
+          project:
+            name: oleksandrkozlov/cexpchess
+            description: cexpchess
+          notification_email: aleks.a.kozlov@gmail.com
+          build_command_prepend: cmake -Bbuild -H. -GNinja
+          build_command: cmake --build build
+          branch_pattern: master
+      script: cat cov-int/scm_log.txt
