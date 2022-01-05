@@ -1,3 +1,5 @@
+#include "Game.hpp"
+
 #include <docopt/docopt.h>
 #include <spdlog/spdlog.h>
 
@@ -26,6 +28,9 @@ auto main(const int argc, const char* const* argv) -> int
 
         [[maybe_unused]] const auto arguments =
             docopt::docopt(usage, {std::next(argv), std::next(argv, argc)});
+
+        constexpr auto board = cexpchess::makeBoard();
+        constexpr auto newBoard = cexpchess::move(board, 9, 17);
 
         std::exit(EXIT_SUCCESS);
     } catch (const std::exception& error) {
